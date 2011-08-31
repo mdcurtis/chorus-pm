@@ -61,6 +61,11 @@ typedef int	PaDeviceIndex;
   extern bool slimaudio_output_debug_v;
 #endif
 
+#ifdef RENICE
+extern bool renice;
+bool renice_thread ( int );
+#endif
+
 typedef enum { STREAM_QUIT=0, STREAM_STOP, STREAM_STOPPED, STREAM_PLAYING } slimaudio_stream_state_t;
 
 typedef enum { QUIT=0, PLAY, BUFFERING, PLAYING, PAUSE, PAUSED, STOP, STOPPED } slimaudio_output_state_t;
@@ -122,8 +127,8 @@ typedef struct {
 	u64_t pa_streamtime_offset;
 	u64_t stream_samples;
 
-	bool output_STMs;
-	bool output_STMu;
+	volatile bool output_STMs;
+	volatile bool output_STMu;
 
 	int keepalive_interval;
 	

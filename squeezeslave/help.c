@@ -40,6 +40,103 @@ int parse_macaddress(char *macaddress, const char *str) {
 	return -1;
 }
 
+#ifdef RENICE
+bool renice_thread( int priority )
+{
+	bool failed;
+	int err;
+
+	failed = false;
+
+#ifdef __WIN32__
+	int winpriority;
+	int dwError;
+
+	switch (priority)
+	{
+		case 19:
+		case 18:
+		case 17:
+		case 16:
+		case 15:
+			winpriority = THREAD_PRIORITY_LOWEST;
+			break;
+
+		case 14:
+		case 13:
+		case 12:
+		case 11:
+		case 10:
+		case  9:
+		case  8:
+		case  7:
+	        case  6:
+	        case  5:
+			winpriority = THREAD_PRIORITY_BELOW_NORMAL;
+			break;
+
+		case  4:
+		case  3:
+		case  2:
+		case  1:
+		case  0:
+		case -1:
+		case -2:
+		case -3:
+		case -4:
+			winpriority = THREAD_PRIORITY_NORMAL;
+			break;
+
+		case -5:
+		case -6:
+		case -7:
+		case -8:
+		case -9:
+		case -10:
+		case -11:
+		case -12:
+		case -13:
+		case -14:
+		case -15:
+			winpriority = THREAD_PRIORITY_ABOVE_NORMAL;
+			break;
+
+		case -16:
+		case -17:
+		case -18:
+		case -19:
+		case -20:
+			winpriority = THREAD_PRIORITY_HIGHEST;
+			break;
+
+		default:
+			winpriority = THREAD_PRIORITY_NORMAL;
+			break;
+	}
+
+	if (!SetThreadPriority(GetCurrentThread(), winpriority))
+	{
+		dwError = GetLastError();
+		fprintf(stderr, "Failed to set thread priority (%d), GetLastError (%d).\n", priority, dwError );
+		failed = true;
+	}
+#else 
+	errno = 0;
+	err = nice ( priority );
+
+	if ( errno )
+	{
+		fprintf(stderr, "Failed to set thread priority (%d), errno (%d).\n", priority, errno );
+		failed = true;
+	}
+
+#endif /* __WIN32__ */
+
+	return (failed);
+}
+
+#endif /* RENICE */
+
 #ifdef __WIN32__
 #ifndef EAFNOSUPPORT
 # define EAFNOSUPPORT EINVAL
@@ -301,6 +398,9 @@ void print_version(void) {
 #ifdef INTERACTIVE
 	fprintf(stdout, "interactive ");
 #endif
+#ifdef EMPEG
+	fprintf(stdout, "empeg ");
+#endif
 #ifdef DAEMONIZE
 	fprintf(stdout, "daemon ");
 #endif
@@ -313,6 +413,10 @@ void print_version(void) {
 #ifdef WMA_DECODER
 	fprintf(stdout, "wma ");
 #endif
+#ifdef RENICE
+	fprintf(stdout, "renice ");
+#endif
+
 	fprintf(stdout, "\n");
 
 	fprintf(stdout, "buffer sizes: decoder %u output %u bytes\n",DECODER_BUFFER_SIZE, OUTPUT_BUFFER_SIZE);
@@ -359,6 +463,9 @@ void print_help(void) {
 "                            must be set to 16-bit, 44100 Hz (CD Quality).\n"
 #endif
 #endif
+#if defined(RENICE) && !defined(EMPEG)
+"-N, --renice                Increase process priority, root access required.\n"
+#endif
 #ifdef INTERACTIVE
 #ifndef __WIN32__
 "-l, --lcd                   Enable LCDd (lcdproc) text display.\n"
@@ -392,6 +499,9 @@ void print_help(void) {
 "                            If using LCDd, width is detected.\n"
 #endif
 #endif
+#ifndef __WIN32__
+"-F, --discovery             Discover server IP automatically.\n"
+#endif
 #ifdef DAEMONIZE
 "-M, --daemonize <logfile>   Run squeezeslave as a daemon.\n"
 "                            Messages written to specified file.\n"
@@ -413,6 +523,11 @@ void print_help(void) {
 "                            is useful if the DAC used for output is slow to\n"
 "                            wake-up/lock, causing the first few samples to be\n"
 "                            dropped.\n"
+#ifdef EMPEG
+"-Q, --puteq                 Reads the empeg equalizer from the DSP and writes\n"
+"                            it to eq.dat\n"
+"-q, --geteq                 Reads the eq.dat file and configures the empeg eq\n"
+#endif
 "-R, --retry                 Causes the program to retry connecting to\n"
 "                            Squeezebox Server until it succeeds or is stopped\n"
 "                            using SIGTERM or keyboard entry.\n"

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
+#include <sched.h>
 
 #ifdef __WIN32__
   #include <winsock.h>
@@ -105,11 +106,14 @@ static void *http_thread(void *ptr) {
 #ifdef SLIMPROTO_DEBUG				
 	int last_state = 0;
 #endif
-
+#ifdef RENICE
+	if ( renice )
+		if ( renice_thread (5) ) /* Lower thread priority to give precedence to the decoder */
+			fprintf(stderr, "http_thread: renice failed.\n");
+#endif
 #ifdef BSD_THREAD_LOCKING
 	pthread_mutex_lock(&audio->http_mutex);
 #endif
-
 	audio->http_state = STREAM_STOPPED;
 	
 	while (true) {
@@ -162,10 +166,15 @@ static void *http_thread(void *ptr) {
 
 void slimaudio_http_connect(slimaudio_t *audio, slimproto_msg_t *msg) {
 	int n;
+	struct sockaddr_in serv_addr = audio->proto->serv_addr;
+	const socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+
+	char http_hdr[HTTP_HEADER_LENGTH];
+	int pos = 0;
+	int crlf = 0;
 
 	slimaudio_http_disconnect(audio);
 	
-	struct sockaddr_in serv_addr = audio->proto->serv_addr;
 	if (msg->strm.server_ip != 0) {
 		serv_addr.sin_addr.s_addr = htonl(msg->strm.server_ip);
 	}
@@ -176,7 +185,6 @@ void slimaudio_http_connect(slimaudio_t *audio, slimproto_msg_t *msg) {
 	DEBUGF("slimaudio_http_connect: http connect %s:%i\n", 
 	       inet_ntoa(serv_addr.sin_addr), msg->strm.server_port);
 	
-	const socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) {
 		perror("slimaudio_http_connect: Error opening socket");
 		return;
@@ -210,9 +218,6 @@ void slimaudio_http_connect(slimaudio_t *audio, slimproto_msg_t *msg) {
 	}
 
 	/* read http header */
-	char http_hdr[HTTP_HEADER_LENGTH];
-	int pos = 0;
-	int crlf = 0;
 	
 	do {
 		n = recv(fd, http_hdr+pos, 1, 0);
@@ -321,6 +326,8 @@ void slimaudio_http_disconnect(slimaudio_t *audio) {
 static void http_recv(slimaudio_t *audio) {
 	char buf[AUDIO_CHUNK_SIZE];
 	struct timeval timeOut; 
+	int n;
+	
 	fd_set fdread;
 	u32_t decode_num_tracks_started;
 	u32_t autostart_threshold;
@@ -336,7 +343,15 @@ static void http_recv(slimaudio_t *audio) {
 		return;
 	}
 
-	int n = recv(audio->streamfd, buf, AUDIO_CHUNK_SIZE, 0);
+	while (slimaudio_buffer_available(audio->output_buffer) < AUDIO_CHUNK_SIZE * 2 &&
+		slimaudio_buffer_available(audio->decoder_buffer) >= AUDIO_CHUNK_SIZE * 8)
+	{
+		DEBUGF("http_recv: output_buffer %i below AUDIO_CHUNK_SIZE * 2\n", slimaudio_buffer_available(audio->output_buffer));
+		DEBUGF("http_recv: output_decoder_available %i\n", slimaudio_buffer_available(audio->decoder_buffer));
+		sched_yield();
+	}
+
+	n = recv(audio->streamfd, buf, AUDIO_CHUNK_SIZE, 0);
 
 	/* n == 0 http stream closed by server */
 	if (n <= 0)

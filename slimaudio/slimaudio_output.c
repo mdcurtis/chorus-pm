@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 
 #include <portaudio.h>
 #ifdef PA_WASAPI
@@ -275,6 +276,39 @@ int slimaudio_output_close(slimaudio_t *audio) {
 	return 0;
 }
 
+void slimaudio_output_vol_adjust(slimaudio_t *audio)
+{
+	if ( audio->vol_adjust > 1.0 )
+		audio->vol_adjust = 1.0;
+
+#ifdef EMPEG
+	audio->volume = audio->vol_adjust + (audio->replay_gain - 1);
+	if (audio->volume < 0)
+		audio->volume = 0;
+#else
+	audio->volume = audio->vol_adjust * audio->replay_gain;
+#endif
+
+	if ( ( audio->volume == -1.0 ) || ( audio->volume > 1.0 ) )
+		audio->volume = 1.0;
+
+	DEBUGF("vol_adjust:%f replay_gain:%f start_replay_gain:%f\n",
+			audio->vol_adjust, audio->replay_gain, audio->start_replay_gain);
+
+#ifndef PORTAUDIO_DEV
+	if (audio->px_mixer != NULL) {
+#ifdef EMPEG
+		Px_SetMasterVolume(audio->px_mixer, (PxVolume)audio->volume);
+		DEBUGF("Master volume %f\n", Px_GetMasterVolume(audio->px_mixer));
+#else
+		Px_SetPCMOutputVolume(audio->px_mixer, (PxVolume)audio->volume);
+		DEBUGF("pcm volume %f\n", Px_GetPCMOutputVolume(audio->px_mixer));
+#endif
+	}
+#endif
+}
+
+
 // Wrapper to call slimaudio_stat from output_thread.  Because the
 // output thread keeps the output mutex locked, this wrapper unlocks
 // the mutex for the duration of the slimaudio_stat call.  The reason
@@ -289,6 +323,9 @@ static void output_thread_stat(slimaudio_t* audio, char* code) {
 
 static void *output_thread(void *ptr) {
 	int err;
+#ifndef PORTAUDIO_DEV
+	int num_mixers, nbVolumes, volumeIdx;
+#endif
 	struct timeval  now;
 	struct timespec timeout;
 	
@@ -301,9 +338,13 @@ static void *output_thread(void *ptr) {
                 printf("PortAudio error4: %s Could not open any audio devices.\n", Pa_GetErrorText(err) );
                 exit(-1);
         }
-
+#ifdef RENICE
+if ( renice )
+	if ( renice_thread (-5) ) /* Increase priority */
+		fprintf(stderr, "output_thread: renice failed. Got Root?\n");
+#endif
         DEBUGF("output_thread: PortAudio initialized\n");
-	
+
 #ifndef PORTAUDIO_DEV
 	err = Pa_OpenStream(	&audio->pa_stream,	// stream
 				paNoDevice,		// input device
@@ -315,7 +356,7 @@ static void *output_thread(void *ptr) {
 				paInt16,		// output sample format
 				NULL,			// output driver info
 				44100.0,		// sample rate
-				256,			// frames per buffer
+				1152,			// frames per buffer
 				0,			// number of buffers
 				0,			// stream flags
 				pa_callback,		// callback
@@ -401,7 +442,7 @@ static void *output_thread(void *ptr) {
 	}
 
 #ifndef PORTAUDIO_DEV
-	int num_mixers = Px_GetNumMixers(audio->pa_stream);
+	num_mixers = Px_GetNumMixers(audio->pa_stream);
 	while (--num_mixers >= 0) {
 		DEBUGF("Mixer: %s\n", Px_GetMixerName(audio->pa_stream, num_mixers));
 	}
@@ -419,9 +460,8 @@ static void *output_thread(void *ptr) {
 		DEBUGF("PCM volume supported: %d.\n", 
 		       Px_SupportsPCMOutputVolume(audio->px_mixer));
 
-		const int nbVolumes = Px_GetNumOutputVolumes(audio->px_mixer);
+		nbVolumes = Px_GetNumOutputVolumes(audio->px_mixer);
 		DEBUGF("Nb volumes supported: %d.\n", nbVolumes);
-		int volumeIdx;
 		for (volumeIdx=0; volumeIdx<nbVolumes; ++volumeIdx) {
 			DEBUGF("Volume %d: %s\n", volumeIdx, 
 				Px_GetOutputVolumeName(audio->px_mixer, volumeIdx));
@@ -512,6 +552,12 @@ static void *output_thread(void *ptr) {
 				if (audio->output_STMs)
 				{
 					audio->output_STMs = false;
+					audio->decode_num_tracks_started++;
+
+					audio->replay_gain = audio->start_replay_gain;
+					slimaudio_output_vol_adjust(audio);
+
+					audio->pa_streamtime_offset = audio->stream_samples;
 
 					DEBUGF("output_thread STMs-PLAYING: %llu\n",audio->pa_streamtime_offset);
 					output_thread_stat(audio, "STMs");
@@ -630,30 +676,15 @@ static int audg_callback(slimproto_t *proto, const unsigned char *buf, int buf_l
 	slimaudio_t* const audio = (slimaudio_t *) user_data;
 	slimproto_parse_command(buf, buf_len, &msg);
 
-	audio->vol_adjust = (float) (msg.audg.left_gain) / 65536.0;
-
-	if ( audio->vol_adjust > 1.0 )
-		audio->vol_adjust = 1.0;
-
-	audio->volume = audio->vol_adjust * audio->replay_gain;
-
-	if ( ( audio->volume == -1.0 ) || ( audio->volume > 1.0 ) )
-		audio->volume = 1.0;
-
 	DEBUGF("audg cmd: left_gain:%u right_gain:%u volume:%f old_left_gain:%u old_right_gain:%u",
 			msg.audg.left_gain, msg.audg.right_gain, audio->volume,
 			msg.audg.old_left_gain, msg.audg.old_right_gain);
-	DEBUGF(" vol_adjust:%f replay_gain:%f start_replay_gain:%f",
-			audio->vol_adjust, audio->replay_gain, audio->start_replay_gain);
 	VDEBUGF(" preamp:%hhu digital_volume_control:%hhu", msg.audg.preamp, msg.audg.digital_volume_control);
 	DEBUGF("\n");
 
-#ifndef PORTAUDIO_DEV
-	if (audio->px_mixer != NULL) {
-		Px_SetPCMOutputVolume(audio->px_mixer, (PxVolume)audio->volume);
-		DEBUGF("pcm volume %f\n", Px_GetPCMOutputVolume(audio->px_mixer));	
-	}
-#endif		
+	audio->vol_adjust = (float) (msg.audg.left_gain) / 65536.0;
+	slimaudio_output_vol_adjust(audio);
+
 	return 0;
 }
 
@@ -773,19 +804,20 @@ static void apply_software_volume(slimaudio_t* const audio, void* outputBuffer,
 	// read 'audio->volume' exactly once (assuming this operation is atomic)
 	// to make sure that volume changes performed while we are here will not
 	// cause any glitches.
-	const float newVolume = audio->volume;
-	float curVolume = audio->prev_volume;
-	audio->prev_volume = newVolume;
-	const float volumeIncr = (newVolume - curVolume) / (float)nbFrames;
-	short* const samples = (short*)outputBuffer;
-	const int nbSamples = nbFrames * 2;
-	int i;
-	for (i = 0; i < nbSamples; i += 2, curVolume += volumeIncr) {
-		samples[i]     = ((float)samples[i])     * curVolume;
-		samples[i + 1] = ((float)samples[i + 1]) * curVolume;
+	{
+		const float newVolume = audio->volume;
+		float curVolume = audio->prev_volume;
+		const float volumeIncr = (newVolume - curVolume) / (float)nbFrames;
+		short* const samples = (short*)outputBuffer;
+		const int nbSamples = nbFrames * 2;
+		int i;
+		audio->prev_volume = newVolume;
+		for (i = 0; i < nbSamples; i += 2, curVolume += volumeIncr) {
+			samples[i]     = ((float)samples[i])     * curVolume;
+			samples[i + 1] = ((float)samples[i + 1]) * curVolume;
+		}
+		VDEBUGF("volume: %f applied\n",newVolume);
 	}
-
-	VDEBUGF("volume: %f applied\n",newVolume);
 }
 
 // Writes pre-delay sample-frames into the output buffer passed in.
@@ -794,11 +826,13 @@ static void apply_software_volume(slimaudio_t* const audio, void* outputBuffer,
 // samples to turn on.
 static int produce_predelay_frames(slimaudio_t* audio, void* outputBuffer, unsigned int nbBytes)
 {
+	int i;
+	unsigned int predelayBytes;
 	// FIXME: Asuming 2 channels, 16 bit samples (i.e. 2 bytes)
 	const int frameSize = 2 * 2;
 	unsigned int predelayFrames = audio->output_predelay_frames;
 	const unsigned int maxFrames = nbBytes / frameSize;
-	
+		
 	if (predelayFrames > maxFrames) {
 	  	predelayFrames = maxFrames;
 	}
@@ -806,7 +840,7 @@ static int produce_predelay_frames(slimaudio_t* audio, void* outputBuffer, unsig
 	DEBUGF("slimaudio_output: producing %i predelay frames\n",
 	       predelayFrames);
 	
-	const unsigned int predelayBytes = predelayFrames * frameSize;
+	predelayBytes = predelayFrames * frameSize;
 	if (audio->output_predelay_amplitude == 0) {
 		memset((char*)outputBuffer, 0, predelayBytes);
 	}
@@ -825,7 +859,6 @@ static int produce_predelay_frames(slimaudio_t* audio, void* outputBuffer, unsig
 			// calls.
 			val = -val;
 		}
-		int i;
 		for ( i = 0; i < predelayFrames; ++i, val = -val ) {
 			samples[ 2 * i ] = samples[ 2 * i + 1] = val;
 		}
@@ -853,7 +886,7 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 	const int frameSize = 2 * 2;
 	const int len = framesPerBuffer * frameSize; 
 	
-	int off = 0;
+	int off = 0, uninitSize, data_len;
 
 	while ( (audio->output_state == PLAYING) && ((len - off) > 0) )
 	{
@@ -862,7 +895,7 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 			continue;
 		}
 
-		int data_len = len - off;
+		data_len = len - off;
 
 		if (slimaudio_buffer_available(audio->output_buffer) > 0)
 		{
@@ -872,13 +905,12 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 		{
 			ok = SLIMAUDIO_BUFFER_STREAM_UNDERRUN;
 			DEBUGF("pa_callback: SLIMAUDIO_BUFFER_STREAM_UNDERRUN\n");
+			break; // Added so playback would be silent on underrun
 		}
 
 		if (ok == SLIMAUDIO_BUFFER_STREAM_END) {
 			/* stream closed */
 			if (slimaudio_buffer_available(audio->output_buffer) == 0) {
-				pthread_mutex_lock(&audio->output_mutex);
-
 				// Send buffer underrun to Squeezebox Server. During
 				// normal play this indicates the end of the
 				// playlist. During sync this starts the next 
@@ -887,32 +919,18 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 
 				DEBUGF("pa_callback: STREAM_END:output_STMu:%i\n",audio->output_STMu);
 
-				pthread_mutex_unlock(&audio->output_mutex);
 				pthread_cond_broadcast(&audio->output_cond);
 			}
 		}
 		else if (ok == SLIMAUDIO_BUFFER_STREAM_START) {
-			pthread_mutex_lock(&audio->output_mutex);
-
 			/* Send track start to Squeezebox Server. During normal play
 			** this advances the playlist.
 			*/
 			audio->output_STMs = true;
 
-			audio->decode_num_tracks_started++;
-
-			audio->replay_gain = audio->start_replay_gain;
-			audio->volume = audio->vol_adjust * audio->replay_gain;
-
-			if ( ( audio->volume == -1.0 ) || ( audio->volume > 1.0 ) )
-				audio->volume = 1.0;
-
-			audio->pa_streamtime_offset = audio->stream_samples;
-
 			DEBUGF("pa_callback: STREAM_START:output_STMs:%i tracks:%i\n",
 				audio->output_STMs, audio->decode_num_tracks_started);
 
-			pthread_mutex_unlock(&audio->output_mutex);
 			pthread_cond_broadcast(&audio->output_cond);
 
 		}
@@ -933,7 +951,7 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 
 	}
 
-	const int uninitSize = len - off;
+	uninitSize = len - off;
 	if (uninitSize > 0) {
 	 	DEBUGF("slimaudio_output: pa_callback uninitialized bytes: %i\n", uninitSize);
 		memset((char *)outputBuffer+off, 0, uninitSize);
