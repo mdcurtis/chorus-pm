@@ -297,14 +297,14 @@ int slimproto_discover(char * server_addr, int server_addr_len, int port)
 			perror("sendto");
 			return -1;
 		}
-		fprintf(stderr, "Server discovery packet sent.\n");
+		DEBUGF("slimproto_discover: Server discovery packet sent\n");
 		/* Wait up to 1 second for response */
 		while (poll(&pollfd, 1, 1000)) {
 			if (recvfrom(sockfd, buffer, sizeof(buffer), MSG_DONTWAIT, (struct sockaddr *)&sendaddr, &sockaddr_len) == -1) continue;
 			if (memcmp(buffer, "ENAME", 5)) continue;
 			buffer[buffer[5] + 6] = 0;
 			inet_ntop(AF_INET, &sendaddr.sin_addr.s_addr, server_addr, server_addr_len);
-			fprintf(stderr, "Server discovered: %s@%s\n", &buffer[6], server_addr);
+			DEBUGF("slimproto_discover: Server discovered %s@%s\n", &buffer[6], server_addr);
 			close(sockfd);
 			return strlen(server_addr);
 		}
