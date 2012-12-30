@@ -26,14 +26,14 @@
 
 #define OV_EXCLUDE_STATIC_CALLBACKS
 
+#include "slimproto/slimproto.h"
+#include "slimaudio/slimaudio.h"
+
 #ifdef TREMOR_DECODER
-#include <vorbis/ivorbisfile.h>
+#include <tremor/ivorbisfile.h>
 #else
 #include <vorbis/vorbisfile.h>
 #endif /* TREMOR_DECODER */
-
-#include "slimproto/slimproto.h"
-#include "slimaudio/slimaudio.h"
 
 #ifdef SLIMPROTO_DEBUG
   #define DEBUGF(...) if (slimaudio_decoder_debug) fprintf(stderr, __VA_ARGS__)

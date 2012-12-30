@@ -46,8 +46,8 @@
 
 #define HTTP_HEADER_LENGTH 1024
 
-extern bool threshold_override;
-extern unsigned int output_threshold;
+static bool threshold_override = false;
+static unsigned int output_threshold = OUTPUT_THRESHOLD;
 
 #ifdef SLIMPROTO_DEBUG
   bool slimaudio_http_debug;
@@ -109,11 +109,11 @@ static void *http_thread(void *ptr) {
 #ifdef SLIMPROTO_DEBUG				
 	int last_state = 0;
 #endif
-#ifdef RENICE
-	if ( renice )
-		if ( renice_thread (5) ) /* Lower thread priority to give precedence to the decoder */
+	if ( audio->renice ) {
+		if ( slimproto_renice_thread (5) ) { /* Lower thread priority to give precedence to the decoder */
 			fprintf(stderr, "http_thread: renice failed.\n");
-#endif
+		}
+	}
 #ifdef BSD_THREAD_LOCKING
 	pthread_mutex_lock(&audio->http_mutex);
 #endif
@@ -195,12 +195,12 @@ void slimaudio_http_connect(slimaudio_t *audio, slimproto_msg_t *msg) {
 		return;
 	}
 
-        if ( slimproto_configure_socket (fd, 0) != 0 )
-        {
+	if ( slimproto_configure_socket (fd, 0) != 0 )
+	{
 		perror("slimaudio_http_connect: error configuring socket");
                 CLOSESOCKET(fd);
                 return;
-        }
+	}
 
 	if (connect(fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 0) {
 		perror("slimaudio_http_connect: error connecting to server");

@@ -135,6 +135,8 @@ int slimproto_init(slimproto_t *p);
 
 void slimproto_destroy(slimproto_t *p);
 
+bool slimproto_renice_thread( int priority );
+
 void slimproto_add_command_callback(slimproto_t *p, const char *cmd, slimproto_command_callback_t *callback, void *user_data);
 
 void slimproto_add_connect_callback(slimproto_t *p, slimproto_connect_callback_t *callback, void *user_data);

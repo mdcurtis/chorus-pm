@@ -46,18 +46,14 @@ bool threshold_override = false;
 unsigned int output_threshold = OUTPUT_THRESHOLD;
 
 #ifdef PORTAUDIO_DEV
-/* User suggested latency */
-bool modify_latency = false;
-unsigned int user_latency = 0L;
-#else
 unsigned long pa_framesPerBuffer = PA_FRAMES_PER_BUFFER;
 unsigned long pa_numberOfBuffers = PA_NUM_BUFFERS;
 #endif
 
 static volatile bool signal_exit_flag = false;
 static volatile bool signal_restart_flag = false;
-const char* version = "1.3";
-const int revision = 390;
+const char* version = "1.2";
+const int revision = 383;
 static int port = SLIMPROTOCOL_PORT;
 static int firmware = FIRMWARE_VERSION;
 static int player_type = PLAYER_TYPE;
@@ -75,13 +71,11 @@ bool debug_logfile = false;
 bool wasapi_exclusive = true;
 #endif
 
-#ifdef RENICE
 #ifdef EMPEG /* Always enabled for empeg */
-bool renice = true;
+static bool renice = true;
 #else
-bool renice = false;
+static bool renice = false;
 #endif /* EMPEG */
-#endif /* RENICE */
 
 #ifdef INTERACTIVE
 struct lirc_config *lircconfig;
@@ -226,7 +220,7 @@ int main(int argc, char *argv[]) {
 	bool discover_server = false;
 	unsigned int json_port;
 
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	bool default_macaddress = true;
 	unsigned int zone = 0;
 	unsigned int num_zones = 1;
@@ -234,6 +228,11 @@ int main(int argc, char *argv[]) {
 #ifdef DAEMONIZE
 	bool should_daemonize = false;
 	char *logfile = NULL;
+#endif
+#ifdef PORTAUDIO_DEV
+	/* User suggested latency */
+	bool modify_latency = false;
+	unsigned int user_latency = 0L;
 #endif
 	char slimserver_address[INET_FQDNSTRLEN] = "127.0.0.1";
 
@@ -290,10 +289,10 @@ int main(int argc, char *argv[]) {
 		{"display",            no_argument,       0, 'D'},
 		{"width",              required_argument, 0, 'w'},
 #endif
-#ifdef RENICE
+#ifdef SLIMPROTO_RENICE
 		{"renice",             no_argument,       0, 'N'},
 #endif
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 		{"zone",               required_argument, 0, 'z'},
 #endif
 		{0, 0, 0, 0}
@@ -342,10 +341,10 @@ int main(int argc, char *argv[]) {
 	strcat (getopt_options, "S");
 #endif
 #endif
-#ifdef RENICE
+#ifdef SLIMPROTO_RENICE
 	strcat (getopt_options, "N");
 #endif
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	strcat (getopt_options, "z:");
 #endif
 #ifdef EMPEG
@@ -482,7 +481,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "%s: Cannot parse mac address %s\n", argv[0], optarg);
 				exit(-1);	
 			}
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 			default_macaddress = false;
 #endif
 			break;
@@ -516,7 +515,7 @@ int main(int argc, char *argv[]) {
 			break;
 #endif
 #endif
-#ifdef RENICE
+#ifdef SLIMPROTO_RENICE
 		case 'N':
 			renice = true;
 			break;
@@ -647,7 +646,7 @@ int main(int argc, char *argv[]) {
 			}
 			break;
 #endif
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 		case 'z':
 			if (sscanf(optarg, "%u/%u", &zone, &num_zones) != 2)
 			{
@@ -710,7 +709,7 @@ int main(int argc, char *argv[]) {
 		exit(-1);	
 	}
 
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	if (slimaudio_init(&slimaudio, &slimproto, output_device_id, output_device_name,
 		hostapi_name, output_change, zone, num_zones) < 0)
 #else
@@ -721,10 +720,16 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Failed to initialize slimaudio\n");
 		exit(-1);
 	}
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	if (default_macaddress)
 		macaddress[5] += zone;
 #endif
+#ifdef PORTAUDIO_DEV
+	if( modify_latency ) {
+		slimaudio_set_latency( &slimaudio, user_latency );
+	}
+#endif	
+	slimaudio_set_renice( &slimaudio, renice );
 	slimproto_add_connect_callback(&slimproto, connect_callback, macaddress);
 
 #ifdef INTERACTIVE

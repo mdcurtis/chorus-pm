@@ -57,8 +57,8 @@ static struct audio_dither left_dither, right_dither;
 
 static struct audio_stats stats;
 
-# if defined(_MSC_VER) || defined(__SUNPRO_C)
-extern  /* needed to satisfy bizarre MSVC++ interaction with inline */
+# if defined(_MSC_VER) || defined(__SUNPRO_C) || 1
+static  /* needed to satisfy bizarre MSVC++ interaction with inline */
 # endif
 inline signed long audio_linear_dither(unsigned int bits, mad_fixed_t sample,
 				struct audio_dither *dither,
@@ -318,8 +318,8 @@ unsigned long prng(unsigned long state)
  * NAME:	audio_linear_dither()
  * DESCRIPTION:	generic linear sample quantize and dither routine
  */
-# if defined(_MSC_VER) || defined(__SUNPRO_C)
-extern  /* needed to satisfy bizarre MSVC++ interaction with inline */
+# if defined(_MSC_VER) || defined(__SUNPRO_C) || 1
+static  /* needed to satisfy bizarre MSVC++ interaction with inline */
 # endif
 inline
 signed long audio_linear_dither(unsigned int bits, mad_fixed_t sample,

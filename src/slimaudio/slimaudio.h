@@ -23,6 +23,8 @@
 #ifndef _SLIMAUDIO_H_
 #define _SLIMAUDIO_H_
 
+#include "slimproto/config.h"
+
 #include <stdbool.h>
 #include <pthread.h>
 #include <portaudio.h>
@@ -36,7 +38,7 @@
 #define OV_EXCLUDE_STATIC_CALLBACKS
 
 #ifdef TREMOR_DECODER
-#include <vorbis/ivorbisfile.h>
+#include <tremor/ivorbisfile.h>
 #else
 #include <vorbis/vorbisfile.h>
 #endif /* TREMOR_DECODER */
@@ -50,7 +52,7 @@
 #define BUFFERING_TIMEOUT	(12)
 #define OUTPUT_THRESHOLD        (211680)  /* 1.2 seconds, 44100Hz, 2 channels, 2 bytes (16bit/sample) */
 
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 #define MAX_ZONES		(4)
 #endif
 
@@ -76,10 +78,6 @@ extern unsigned long pa_numberOfBuffers;
   extern bool slimaudio_output_debug_v;
 #endif
 
-#ifdef RENICE
-extern bool renice;
-bool renice_thread ( int );
-#endif
 
 typedef enum { STREAM_QUIT=0, STREAM_STOP, STREAM_STOPPED, STREAM_PLAYING } slimaudio_stream_state_t;
 
@@ -92,6 +90,8 @@ typedef struct {
 	
 	slimaudio_buffer_t *decoder_buffer;		/* decoder buffer */
 	slimaudio_buffer_t *output_buffer;		/* output buffer */
+
+	bool renice; /* whether to try to renice the http and audio threads */
 	
 	/* http state */
 	pthread_t http_thread;
@@ -127,6 +127,8 @@ typedef struct {
 	slimaudio_output_state_t output_state;
 #ifdef PORTAUDIO_DEV
 	PaStream *pa_stream;
+	bool modify_latency;
+	unsigned int user_latency;
 #else
 	PortAudioStream *pa_stream;
 	PxMixer *px_mixer;
@@ -138,7 +140,7 @@ typedef struct {
 	unsigned int output_predelay_msec;
 	unsigned int output_predelay_frames;
 	unsigned int output_predelay_amplitude;
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	u8_t output_num_zones;
 	u8_t output_zone;
 #endif
@@ -179,7 +181,7 @@ typedef struct {
 
 } slimaudio_t;
 
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 int slimaudio_init(slimaudio_t *audio, slimproto_t *proto, PaDeviceIndex, char *, char *, bool, int, int);
 #else
 int slimaudio_init(slimaudio_t *audio, slimproto_t *proto, PaDeviceIndex, char *, char *, bool);
@@ -208,6 +210,13 @@ void slimaudio_set_volume_control(slimaudio_t *audio, slimaudio_volume_t vol);
 ** non-silent samples.
 */
 void slimaudio_set_output_predelay(slimaudio_t *audio, unsigned int msec, unsigned int amplitude);
+
+#ifdef PORTAUDIO_DEV
+void slimaudio_set_latency( slimaudio_t *a, unsigned int user_latency );
+void slimaudio_unset_latency( slimaudio_t *a );
+#endif
+
+void slimaudio_set_renice( slimaudio_t *audio, bool renice );
 
 int slimaudio_http_open(slimaudio_t *a);
 int slimaudio_http_close(slimaudio_t *a);

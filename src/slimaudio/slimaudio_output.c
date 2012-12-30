@@ -51,9 +51,6 @@ extern bool wasapi_exclusive;
 static void *output_thread(void *ptr);
 
 #ifdef PORTAUDIO_DEV
-extern bool modify_latency;
-extern unsigned int user_latency;
-
 static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 	unsigned long framesPerBuffer,
 	const PaStreamCallbackTimeInfo * callbackTime,
@@ -356,11 +353,9 @@ static void *output_thread(void *ptr) {
                 exit(-1);
         }
 
-#ifdef RENICE
-	if ( renice )
-		if ( renice_thread (-5) ) /* Increase priority */
+	if ( audio->renice )
+		if ( slimproto_renice_thread (-5) ) /* Increase priority */
 			fprintf(stderr, "output_thread: renice failed. Got Root?\n");
-#endif
 
 #ifndef PORTAUDIO_DEV
 	DEBUGF("output_thread: output_device_id  : %i\n", audio->output_device_id );
@@ -402,7 +397,7 @@ static void *output_thread(void *ptr) {
 		exit(-2);
 	}
 	outputParameters.device = audio->output_device_id;
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	outputParameters.channelCount = 2 * audio->output_num_zones;
 #else
 	outputParameters.channelCount = 2;
@@ -410,9 +405,9 @@ static void *output_thread(void *ptr) {
 	outputParameters.sampleFormat = paInt16;
 	outputParameters.suggestedLatency = paDeviceInfo->defaultHighOutputLatency;
 
-	if ( modify_latency )
+	if ( audio->modify_latency )
 	{
-		newLatency = (float) user_latency / 1000.0;
+		newLatency = (float) audio->user_latency / 1000.0;
 		if ( ( newLatency > 1.0 ) || ( newLatency <= paDeviceInfo->defaultLowOutputLatency ) )
 		{
 			fprintf (stderr, "User defined latency %f out of range %f-1.0, using default.\n",
@@ -1049,7 +1044,7 @@ static int pa_callback(  const void *inputBuffer, void *outputBuffer,
 	if (audio->volume_control == VOLUME_SOFTWARE) {
 		apply_software_volume(audio, outputBuffer, framesPerBuffer);
 	}
-#ifdef ZONES	
+#ifdef SLIMPROTO_ZONES	
 	if (audio->output_num_zones > 1)
 	{
 		/* FIXME: Asuming 2 channels, 16 bit samples (i.e. 2 bytes) */

@@ -60,7 +60,7 @@ static void audio_stop(slimaudio_t *audio);
  * - allocate the internal state
  * - register callbacks with slimproto
  */
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 int slimaudio_init(slimaudio_t *audio, slimproto_t *proto,
 	PaDeviceIndex default_device, char *default_device_name, char *default_hostapi,
 	bool output_change, int output_zone, int output_num_zones)
@@ -79,7 +79,7 @@ int slimaudio_init(slimaudio_t *audio, slimproto_t *proto,
 	DEBUGF("decoder buffer pointer: %p\n", audio->decoder_buffer);
 	DEBUGF("output buffer pointer: %p\n", audio->output_buffer);
 
-#ifdef ZONES
+#ifdef SLIMPROTO_ZONES
 	if (output_zone >= output_num_zones)
 		return -1;
 	audio->output_num_zones=output_num_zones;
@@ -142,6 +142,26 @@ void slimaudio_set_output_predelay(slimaudio_t *audio, unsigned int msec, unsign
 	audio->output_predelay_amplitude = amplitude;
 	pthread_mutex_unlock(&audio->output_mutex);
 	pthread_cond_broadcast(&audio->output_cond);
+}
+
+void slimaudio_set_latency( slimaudio_t *audio, unsigned int user_latency )
+{
+	pthread_mutex_lock(&audio->output_mutex);
+	audio->modify_latency = true;
+	audio->user_latency = user_latency;
+	pthread_mutex_unlock(&audio->output_mutex);
+}
+
+void slimaudio_unset_latency( slimaudio_t *audio )
+{
+	pthread_mutex_lock(&audio->output_mutex);
+	audio->modify_latency = false;
+	pthread_mutex_unlock(&audio->output_mutex);
+}
+
+void slimaudio_set_renice( slimaudio_t *audio, bool renice )
+{
+	audio->renice = renice;
 }
 
 /*
