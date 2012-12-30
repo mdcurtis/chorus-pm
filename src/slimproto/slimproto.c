@@ -546,7 +546,7 @@ int slimproto_discover(char *server_addr, int server_addr_len, int port, unsigne
 		/* Wait up to 1 second for response */
 		while (poll(&pollfd, 1, 1000))
 		{
-			memset(packet,0,sizeof(packet));
+			memset(packet,0, sizeof ( char ) * DISCOVERY_PKTSIZE );
 
 			pktlen = recvfrom(sockfd, packet, DISCOVERY_PKTSIZE, MSG_DONTWAIT,
 				(struct sockaddr *)&sendaddr, &sockaddr_len);
@@ -556,9 +556,9 @@ int slimproto_discover(char *server_addr, int server_addr_len, int port, unsigne
 			/* Invalid response packet, try again */
 			if ( packet[0] != 'E') continue;
 
-			memset(server_name,0,sizeof(server_name));
-			memset(server_json,0,sizeof(server_json));
-
+      server_name[ 0 ] = '\0';
+      server_json[ 0 ] = '\0';
+			
 			VDEBUGF("slimproto_discover: pktlen:%d\n",pktlen);
 
 			/* Skip the E */
